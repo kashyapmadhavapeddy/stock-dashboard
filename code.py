@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import requests
-import numpy as np
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
@@ -104,7 +103,7 @@ else:
 # ---------------- DIRECTION BAR ----------------
 st.subheader("🔥 Market Direction")
 
-df["direction"] = np.where(df["returns"] > 0, "Up", "Down")
+df["direction"] = df["returns"].apply(lambda x: "Up" if x > 0 else "Down")
 st.bar_chart(df["direction"].value_counts())
 
 # ---------------- FOOTER ----------------
