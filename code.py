@@ -1,20 +1,19 @@
 """
 ╔══════════════════════════════════════════════════════════╗
 ║         NEXUS — Real-Time Stock Intelligence Dashboard   ║
-║         API: yfinance (Yahoo Finance) — No key needed    ║
+║         API: Alpha Vantage (free key, no rate issues)    ║
 ║         Auto-refresh: every 30 minutes                   ║
 ╚══════════════════════════════════════════════════════════╝
 """
 
 import streamlit as st
 import streamlit.components.v1 as components
-import yfinance as yf
+import requests
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 import time
 
@@ -31,9 +30,6 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 #  AUTO-REFRESH EVERY 30 MINUTES (pure Streamlit)
 # ─────────────────────────────────────────────
-# Force sidebar open on every load
-st.session_state["sidebar_state"] = "expanded"
-
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = time.time()
     st.session_state.refresh_count = 0
@@ -48,30 +44,35 @@ if elapsed >= 1800:
 refresh_count = st.session_state.refresh_count
 
 # ─────────────────────────────────────────────
-#  GLOBAL CSS — Dark luxury aesthetic
+#  API KEY — from Streamlit secrets
+# ─────────────────────────────────────────────
+try:
+    AV_KEY = st.secrets["AV_API_KEY"]
+except Exception:
+    AV_KEY = None
+
+# ─────────────────────────────────────────────
+#  GLOBAL CSS
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap');
 
-/* ── Root variables ── */
 :root {
-    --bg:        #080c14;
-    --surface:   #0d1320;
-    --surface2:  #111827;
-    --border:    #1e2d42;
-    --accent:    #00d4ff;
-    --accent2:   #7c3aed;
-    --green:     #00e676;
-    --red:       #ff3d57;
-    --gold:      #fbbf24;
-    --text:      #e2e8f0;
-    --muted:     #64748b;
-    --font-head: 'Syne', sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
+    --bg:       #080c14;
+    --surface:  #0d1320;
+    --surface2: #111827;
+    --border:   #1e2d42;
+    --accent:   #00d4ff;
+    --accent2:  #7c3aed;
+    --green:    #00e676;
+    --red:      #ff3d57;
+    --gold:     #fbbf24;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --font-head:'Syne', sans-serif;
+    --font-mono:'JetBrains Mono', monospace;
 }
-
-/* ── Base ── */
 html, body, [class*="css"] {
     font-family: var(--font-mono);
     background-color: var(--bg) !important;
@@ -79,18 +80,14 @@ html, body, [class*="css"] {
 }
 .main { background: var(--bg) !important; }
 .block-container { padding: 1.5rem 2rem 2rem !important; max-width: 1600px; }
-
-/* ── Hide Streamlit chrome ── */
 #MainMenu, footer, header { visibility: hidden; }
 
-/* ── Sidebar ── */
 [data-testid="stSidebar"] {
     background: var(--surface) !important;
     border-right: 1px solid var(--border) !important;
 }
 [data-testid="stSidebar"] * { font-family: var(--font-mono) !important; }
 
-/* ── Metric cards ── */
 [data-testid="stMetric"] {
     background: var(--surface) !important;
     border: 1px solid var(--border) !important;
@@ -99,18 +96,15 @@ html, body, [class*="css"] {
     transition: border-color .25s;
 }
 [data-testid="stMetric"]:hover { border-color: var(--accent) !important; }
-[data-testid="stMetricLabel"] { color: var(--muted) !important; font-size: .7rem !important; letter-spacing: .12em; text-transform: uppercase; }
-[data-testid="stMetricValue"] { color: var(--text) !important; font-size: 1.6rem !important; font-family: var(--font-head) !important; font-weight: 700 !important; }
-[data-testid="stMetricDelta"] { font-size: .8rem !important; }
+[data-testid="stMetricLabel"] { color: var(--muted) !important; font-size:.7rem !important; letter-spacing:.12em; text-transform:uppercase; }
+[data-testid="stMetricValue"] { color: var(--text) !important; font-size:1.6rem !important; font-family:var(--font-head) !important; font-weight:700 !important; }
 
-/* ── Tabs ── */
 [data-testid="stTabs"] button {
     font-family: var(--font-mono) !important;
     font-size: .75rem !important;
     letter-spacing: .08em;
     color: var(--muted) !important;
     border-bottom: 2px solid transparent !important;
-    padding: .5rem 1.2rem !important;
 }
 [data-testid="stTabs"] button[aria-selected="true"] {
     color: var(--accent) !important;
@@ -118,9 +112,7 @@ html, body, [class*="css"] {
     background: transparent !important;
 }
 
-/* ── Selectbox & inputs ── */
-[data-testid="stSelectbox"] > div > div,
-[data-testid="stMultiSelect"] > div > div {
+[data-testid="stSelectbox"] > div > div {
     background: var(--surface2) !important;
     border: 1px solid var(--border) !important;
     border-radius: 8px !important;
@@ -128,7 +120,6 @@ html, body, [class*="css"] {
     font-family: var(--font-mono) !important;
 }
 
-/* ── Hero header ── */
 .nexus-header {
     background: linear-gradient(135deg, #080c14 0%, #0d1320 40%, #0a1628 100%);
     border: 1px solid var(--border);
@@ -139,233 +130,49 @@ html, body, [class*="css"] {
     overflow: hidden;
 }
 .nexus-header::before {
-    content: '';
-    position: absolute;
-    top: -60px; right: -60px;
-    width: 200px; height: 200px;
-    background: radial-gradient(circle, rgba(0,212,255,.12) 0%, transparent 70%);
-    pointer-events: none;
-}
-.nexus-header::after {
-    content: '';
-    position: absolute;
-    bottom: -40px; left: 30%;
-    width: 300px; height: 100px;
-    background: radial-gradient(ellipse, rgba(124,58,237,.08) 0%, transparent 70%);
-    pointer-events: none;
+    content:'';
+    position:absolute; top:-60px; right:-60px;
+    width:200px; height:200px;
+    background:radial-gradient(circle, rgba(0,212,255,.12) 0%, transparent 70%);
+    pointer-events:none;
 }
 .nexus-title {
     font-family: var(--font-head);
-    font-size: 2.2rem;
-    font-weight: 800;
-    letter-spacing: -.02em;
-    color: #fff;
-    margin: 0 0 .2rem;
+    font-size: 2.2rem; font-weight: 800;
+    letter-spacing: -.02em; color: #fff; margin: 0 0 .2rem;
 }
 .nexus-title span { color: var(--accent); }
-.nexus-sub {
-    font-family: var(--font-mono);
-    font-size: .72rem;
-    color: var(--muted);
-    letter-spacing: .15em;
-    text-transform: uppercase;
-}
+.nexus-sub { font-family:var(--font-mono); font-size:.72rem; color:var(--muted); letter-spacing:.15em; text-transform:uppercase; }
 .live-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: .4rem;
-    background: rgba(0,230,118,.1);
-    border: 1px solid rgba(0,230,118,.3);
-    border-radius: 20px;
-    padding: .25rem .75rem;
-    font-size: .65rem;
-    color: var(--green);
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    font-family: var(--font-mono);
+    display:inline-flex; align-items:center; gap:.4rem;
+    background:rgba(0,230,118,.1); border:1px solid rgba(0,230,118,.3);
+    border-radius:20px; padding:.25rem .75rem;
+    font-size:.65rem; color:var(--green); letter-spacing:.1em; text-transform:uppercase;
 }
-.live-dot {
-    width: 6px; height: 6px;
-    background: var(--green);
-    border-radius: 50%;
-    animation: pulse 1.6s infinite;
-}
-@keyframes pulse {
-    0%,100% { opacity: 1; transform: scale(1); }
-    50%      { opacity: .4; transform: scale(.7); }
-}
+.live-dot { width:6px; height:6px; background:var(--green); border-radius:50%; animation:pulse 1.6s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
 
-/* ── Section labels ── */
 .section-label {
-    font-family: var(--font-mono);
-    font-size: .65rem;
-    letter-spacing: .18em;
-    text-transform: uppercase;
-    color: var(--muted);
-    border-left: 2px solid var(--accent);
-    padding-left: .6rem;
-    margin-bottom: .75rem;
+    font-family:var(--font-mono); font-size:.65rem; letter-spacing:.18em;
+    text-transform:uppercase; color:var(--muted);
+    border-left:2px solid var(--accent); padding-left:.6rem; margin-bottom:.75rem;
 }
-
-/* ── Anomaly alert box ── */
 .alert-box {
-    background: rgba(255,61,87,.07);
-    border: 1px solid rgba(255,61,87,.3);
-    border-radius: 10px;
-    padding: .75rem 1rem;
-    font-size: .75rem;
-    color: #fca5a5;
-    font-family: var(--font-mono);
-    margin-bottom: .5rem;
+    background:rgba(255,61,87,.07); border:1px solid rgba(255,61,87,.3);
+    border-radius:10px; padding:.75rem 1rem;
+    font-size:.75rem; color:#fca5a5; font-family:var(--font-mono); margin-bottom:.5rem;
 }
-.alert-box strong { color: var(--red); }
-
-/* ── Divider ── */
+.alert-box strong { color:var(--red); }
+.api-warn {
+    background:rgba(251,191,36,.07); border:1px solid rgba(251,191,36,.3);
+    border-radius:10px; padding:1rem 1.2rem;
+    font-size:.8rem; color:#fde68a; font-family:var(--font-mono);
+}
 hr { border-color: var(--border) !important; margin: 1.2rem 0 !important; }
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:var(--bg); }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-</style>
-""", unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────
-#  HELPERS
-# ─────────────────────────────────────────────
-WATCHLIST = {
-    "AAPL": "Apple",
-    "MSFT": "Microsoft",
-    "GOOGL": "Alphabet",
-    "AMZN": "Amazon",
-    "NVDA": "NVIDIA",
-    "TSLA": "Tesla",
-    "META": "Meta",
-    "JPM": "JPMorgan",
-    "BRK-B": "Berkshire",
-    "SPY": "S&P 500 ETF",
-}
-
-PERIOD_OPTIONS = {
-    "1 Day": ("1d", "5m"),
-    "5 Days": ("5d", "15m"),
-    "1 Month": ("1mo", "1h"),
-    "3 Months": ("3mo", "1d"),
-    "6 Months": ("6mo", "1d"),
-    "1 Year": ("1y", "1wk"),
-}
-
-COLOR_UP   = "#00e676"
-COLOR_DOWN = "#ff3d57"
-COLOR_NEUT = "#00d4ff"
-PLOT_BG    = "#0d1320"
-GRID_COLOR = "#1e2d42"
-
-
-@st.cache_data(ttl=1800)   # cache for 30 minutes
-def fetch_ticker(symbol: str, period: str = "1mo", interval: str = "1d"):
-    tk = yf.Ticker(symbol)
-    df = tk.history(period=period, interval=interval)
-    # Extract only plain serialisable values from fast_info
-    # (the raw FastInfo object cannot be pickled by st.cache_data)
-    try:
-        fi = tk.fast_info
-        info = {
-            "last_price":       getattr(fi, "last_price",       None),
-            "previous_close":   getattr(fi, "previous_close",   None),
-            "open":             getattr(fi, "open",              None),
-            "day_high":         getattr(fi, "day_high",         None),
-            "day_low":          getattr(fi, "day_low",          None),
-            "fifty_two_week_high": getattr(fi, "fifty_two_week_high", None),
-            "fifty_two_week_low":  getattr(fi, "fifty_two_week_low",  None),
-            "market_cap":       getattr(fi, "market_cap",       None),
-            "shares":           getattr(fi, "shares",           None),
-            "currency":         getattr(fi, "currency",         None),
-            "exchange":         getattr(fi, "exchange",         None),
-            "timezone":         getattr(fi, "timezone",         None),
-        }
-    except Exception:
-        info = {}
-    return df, info
-
-
-def color_delta(val):
-    if val > 0:  return f"<span style='color:#00e676'>▲ {val:+.2f}%</span>"
-    if val < 0:  return f"<span style='color:#ff3d57'>▼ {val:.2f}%</span>"
-    return f"<span style='color:#64748b'>– {val:.2f}%</span>"
-
-
-def compute_rsi(series, period=14):
-    delta = series.diff()
-    gain  = delta.clip(lower=0).rolling(period).mean()
-    loss  = (-delta.clip(upper=0)).rolling(period).mean()
-    rs    = gain / loss
-    return 100 - (100 / (1 + rs))
-
-
-def compute_volatility(df):
-    """Annualised historical volatility (30-day window)."""
-    log_ret = np.log(df["Close"] / df["Close"].shift(1))
-    return log_ret.rolling(30).std() * np.sqrt(252) * 100
-
-
-def detect_anomalies(df, z_thresh=2.5):
-    ret = df["Close"].pct_change()
-    mu, sigma = ret.mean(), ret.std()
-    z = (ret - mu) / sigma
-    return df[z.abs() > z_thresh]
-
-
-# ─────────────────────────────────────────────
-#  SIDEBAR
-# ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown('<div class="section-label">Configuration</div>', unsafe_allow_html=True)
-    
-    symbol = st.selectbox(
-        "Primary Symbol",
-        list(WATCHLIST.keys()),
-        format_func=lambda x: f"{x}  —  {WATCHLIST[x]}",
-    )
-    
-    compare_syms = st.multiselect(
-        "Compare With",
-        [k for k in WATCHLIST if k != symbol],
-        default=[],
-        max_selections=3,
-    )
-    
-    period_label = st.selectbox("Time Range", list(PERIOD_OPTIONS.keys()), index=2)
-    period, interval = PERIOD_OPTIONS[period_label]
-    
-    st.markdown("---")
-    st.markdown('<div class="section-label">Overlays</div>', unsafe_allow_html=True)
-    show_ma      = st.checkbox("Moving Averages (20 / 50)", value=True)
-    show_bollinger = st.checkbox("Bollinger Bands", value=False)
-    show_volume  = st.checkbox("Volume Bars", value=True)
-    show_rsi     = st.checkbox("RSI (14)", value=False)
-    show_vol_idx = st.checkbox("Volatility Index", value=False)
-    
-    st.markdown("---")
-    ist = pytz.timezone("Asia/Kolkata")
-    now = datetime.now(ist)
-    st.markdown(f"""
-    <div style="font-size:.65rem; color:#475569; line-height:1.8;">
-        <div style="color:#94a3b8; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.4rem;">System</div>
-        🕐 {now.strftime('%H:%M:%S IST')}<br>
-        🔄 Refresh #<strong style="color:#00d4ff">{refresh_count}</strong><br>
-        ⏱ Next in ~30 min<br>
-        📡 Source: Yahoo Finance
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────
-#  SIDEBAR TOGGLE BUTTON
-# ─────────────────────────────────────────────
-toggle_css = """
-<style>
 div[data-testid="stButton"] > button {
     background: rgba(0,212,255,.08) !important;
     border: 1px solid rgba(0,212,255,.25) !important;
@@ -381,98 +188,39 @@ div[data-testid="stButton"] > button:hover {
     background: rgba(0,212,255,.18) !important;
 }
 </style>
-"""
-st.markdown(toggle_css, unsafe_allow_html=True)
-
-if st.button("\u2630  Settings & Filters"):
-    st.session_state["_sb"] = not st.session_state.get("_sb", True)
-    js = """<script>
-    const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
-    const btn     = window.parent.document.querySelector('[data-testid="collapsedControl"]');
-    if (sidebar) { btn && btn.click(); }
-    </script>"""
-    st.components.v1.html(js, height=0)
-
-# ─────────────────────────────────────────────
-#  HEADER
-# ─────────────────────────────────────────────
-company = WATCHLIST.get(symbol, symbol)
-st.markdown(f"""
-<div class="nexus-header">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem;">
-    <div>
-      <div class="nexus-title">NEXUS <span>·</span> {symbol}</div>
-      <div class="nexus-sub">{company} &nbsp;·&nbsp; Real-Time Stock Intelligence &nbsp;·&nbsp; {period_label}</div>
-    </div>
-    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:.5rem;">
-      <div class="live-badge"><div class="live-dot"></div>Live Data</div>
-      <div style="font-size:.65rem; color:#475569;">Auto-refresh every 30 min</div>
-    </div>
-  </div>
-</div>
 """, unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
-#  FETCH DATA
+#  CONSTANTS
 # ─────────────────────────────────────────────
-with st.spinner("Fetching market data…"):
-    df, info = fetch_ticker(symbol, period, interval)
+WATCHLIST = {
+    "AAPL":  "Apple",
+    "MSFT":  "Microsoft",
+    "GOOGL": "Alphabet",
+    "AMZN":  "Amazon",
+    "NVDA":  "NVIDIA",
+    "TSLA":  "Tesla",
+    "META":  "Meta",
+    "JPM":   "JPMorgan",
+    "SPY":   "S&P 500 ETF",
+    "QQQ":   "Nasdaq ETF",
+}
 
-if df.empty:
-    st.error("⚠️ No data returned. Check the symbol or try again.")
-    st.stop()
+PERIOD_OPTIONS = {
+    "1 Month":  "monthly",
+    "Weekly":   "weekly",
+    "Daily":    "daily",
+    "Intraday (60min)": "60min",
+    "Intraday (15min)": "15min",
+}
 
-latest   = df["Close"].iloc[-1]
-prev     = df["Close"].iloc[-2] if len(df) > 1 else latest
-day_chg  = (latest - prev) / prev * 100
-high_52w = df["Close"].rolling(min(252, len(df))).max().iloc[-1]
-low_52w  = df["Close"].rolling(min(252, len(df))).min().iloc[-1]
-avg_vol  = df["Volume"].mean() if "Volume" in df else 0
-cur_vol  = df["Volume"].iloc[-1] if "Volume" in df else 0
+COLOR_UP   = "#00e676"
+COLOR_DOWN = "#ff3d57"
+COLOR_NEUT = "#00d4ff"
+PLOT_BG    = "#0d1320"
+GRID_COLOR = "#1e2d42"
 
-
-# ─────────────────────────────────────────────
-#  KPI METRICS ROW
-# ─────────────────────────────────────────────
-st.markdown('<div class="section-label">Key Metrics</div>', unsafe_allow_html=True)
-
-k1, k2, k3, k4, k5, k6 = st.columns(6)
-k1.metric("Current Price",  f"${latest:,.2f}", f"{day_chg:+.2f}%")
-k2.metric("Period High",    f"${df['High'].max():,.2f}")
-k3.metric("Period Low",     f"${df['Low'].min():,.2f}")
-k4.metric("52W High",       f"${high_52w:,.2f}")
-k5.metric("52W Low",        f"${low_52w:,.2f}")
-vol_delta = ((cur_vol - avg_vol) / avg_vol * 100) if avg_vol else 0
-k6.metric("Volume vs Avg",  f"{vol_delta:+.1f}%", "↑ High" if vol_delta > 20 else ("↓ Low" if vol_delta < -20 else "Normal"))
-
-
-st.markdown("---")
-
-
-# ─────────────────────────────────────────────
-#  ANOMALY ALERTS
-# ─────────────────────────────────────────────
-anomalies = detect_anomalies(df)
-if not anomalies.empty:
-    st.markdown('<div class="section-label">Anomaly Alerts</div>', unsafe_allow_html=True)
-    for idx, row in anomalies.tail(3).iterrows():
-        date_str = idx.strftime("%b %d, %Y") if hasattr(idx, "strftime") else str(idx)
-        pct = (row["Close"] - df["Close"].shift(1).loc[idx]) / df["Close"].shift(1).loc[idx] * 100 if idx in df.index else 0
-        st.markdown(f"""
-        <div class="alert-box">
-            ⚠ <strong>Anomaly Detected</strong> on {date_str} — 
-            Close: <strong>${row['Close']:.2f}</strong> — 
-            Unusual price movement detected (Z-score &gt; 2.5)
-        </div>""", unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────
-#  MAIN CHART TABS
-# ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["📊  Price Chart", "📈  Technical", "🌐  Comparison", "📉  Volatility"])
-
-# ── Plotly theme base ──
 layout_base = dict(
     paper_bgcolor=PLOT_BG,
     plot_bgcolor=PLOT_BG,
@@ -487,243 +235,434 @@ layout_base = dict(
 )
 
 
-# ─── TAB 1: Candlestick + Volume ───
-with tab1:
-    rows = 2 if show_volume else 1
-    row_heights = [0.75, 0.25] if show_volume else [1]
+# ─────────────────────────────────────────────
+#  ALPHA VANTAGE DATA FETCH
+# ─────────────────────────────────────────────
+@st.cache_data(ttl=1800)
+def fetch_av(symbol: str, interval: str, api_key: str) -> pd.DataFrame:
+    """
+    Fetch OHLCV data from Alpha Vantage.
+    interval: daily | weekly | monthly | 60min | 15min
+    """
+    BASE = "https://www.alphavantage.co/query"
 
-    fig = make_subplots(
-        rows=rows, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
-        row_heights=row_heights,
+    if interval in ("daily", "weekly", "monthly"):
+        func_map = {
+            "daily":   "TIME_SERIES_DAILY",
+            "weekly":  "TIME_SERIES_WEEKLY",
+            "monthly": "TIME_SERIES_MONTHLY",
+        }
+        key_map = {
+            "daily":   "Time Series (Daily)",
+            "weekly":  "Weekly Time Series",
+            "monthly": "Monthly Time Series",
+        }
+        params = {
+            "function":   func_map[interval],
+            "symbol":     symbol,
+            "outputsize": "compact",   # last 100 data points
+            "apikey":     api_key,
+        }
+        r = requests.get(BASE, params=params, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+
+        ts_key = key_map[interval]
+        if ts_key not in data:
+            note = data.get("Note") or data.get("Information") or str(data)
+            raise ValueError(f"Alpha Vantage error: {note}")
+
+        raw = data[ts_key]
+        rows = []
+        for date_str, vals in raw.items():
+            rows.append({
+                "Date":   pd.to_datetime(date_str),
+                "Open":   float(vals["1. open"]),
+                "High":   float(vals["2. high"]),
+                "Low":    float(vals["3. low"]),
+                "Close":  float(vals["4. close"]),
+                "Volume": float(vals["5. volume"]),
+            })
+        df = pd.DataFrame(rows).set_index("Date").sort_index()
+
+    else:
+        # Intraday
+        params = {
+            "function":        "TIME_SERIES_INTRADAY",
+            "symbol":          symbol,
+            "interval":        interval,
+            "outputsize":      "compact",
+            "apikey":          api_key,
+        }
+        r = requests.get(BASE, params=params, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+
+        ts_key = f"Time Series ({interval})"
+        if ts_key not in data:
+            note = data.get("Note") or data.get("Information") or str(data)
+            raise ValueError(f"Alpha Vantage error: {note}")
+
+        raw = data[ts_key]
+        rows = []
+        for dt_str, vals in raw.items():
+            rows.append({
+                "Date":   pd.to_datetime(dt_str),
+                "Open":   float(vals["1. open"]),
+                "High":   float(vals["2. high"]),
+                "Low":    float(vals["3. low"]),
+                "Close":  float(vals["4. close"]),
+                "Volume": float(vals["5. volume"]),
+            })
+        df = pd.DataFrame(rows).set_index("Date").sort_index()
+
+    return df
+
+
+@st.cache_data(ttl=1800)
+def fetch_quote(symbol: str, api_key: str) -> dict:
+    """Fetch latest quote (price, change, volume etc.)"""
+    params = {
+        "function": "GLOBAL_QUOTE",
+        "symbol":   symbol,
+        "apikey":   api_key,
+    }
+    r = requests.get("https://www.alphavantage.co/query", params=params, timeout=15)
+    r.raise_for_status()
+    data = r.json()
+    q = data.get("Global Quote", {})
+    return {
+        "price":          float(q.get("05. price",           0) or 0),
+        "change":         float(q.get("09. change",          0) or 0),
+        "change_pct":     q.get("10. change percent", "0%").replace("%", ""),
+        "open":           float(q.get("02. open",            0) or 0),
+        "high":           float(q.get("03. high",            0) or 0),
+        "low":            float(q.get("04. low",             0) or 0),
+        "volume":         float(q.get("06. volume",          0) or 0),
+        "prev_close":     float(q.get("08. previous close",  0) or 0),
+        "latest_day":     q.get("07. latest trading day", ""),
+    }
+
+
+def compute_rsi(series, period=14):
+    delta = series.diff()
+    gain  = delta.clip(lower=0).rolling(period).mean()
+    loss  = (-delta.clip(upper=0)).rolling(period).mean()
+    rs    = gain / loss
+    return 100 - (100 / (1 + rs))
+
+
+def detect_anomalies(df, z_thresh=2.5):
+    ret = df["Close"].pct_change()
+    mu, sigma = ret.mean(), ret.std()
+    z = (ret - mu) / sigma
+    return df[z.abs() > z_thresh]
+
+
+# ─────────────────────────────────────────────
+#  SIDEBAR TOGGLE BUTTON
+# ─────────────────────────────────────────────
+if st.button("\u2630  Settings & Filters"):
+    js = """<script>
+    const btn = window.parent.document.querySelector('[data-testid="collapsedControl"]');
+    if(btn) btn.click();
+    </script>"""
+    components.html(js, height=0)
+
+# ─────────────────────────────────────────────
+#  NO API KEY GUARD
+# ─────────────────────────────────────────────
+if not AV_KEY:
+    st.markdown("""
+    <div class="api-warn">
+        ⚠️ <strong>No API key found.</strong><br><br>
+        1. Get a free key at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" style="color:#fbbf24">alphavantage.co</a><br>
+        2. In Streamlit Cloud → <strong>Manage app → Secrets</strong>, add:<br>
+        <code style="color:#00d4ff">AV_API_KEY = "YOUR_KEY_HERE"</code>
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop()
+
+
+# ─────────────────────────────────────────────
+#  SIDEBAR
+# ─────────────────────────────────────────────
+with st.sidebar:
+    st.markdown('<div class="section-label">Configuration</div>', unsafe_allow_html=True)
+
+    symbol = st.selectbox(
+        "Primary Symbol",
+        list(WATCHLIST.keys()),
+        format_func=lambda x: f"{x}  —  {WATCHLIST[x]}",
     )
 
-    # Candlestick
+    period_label = st.selectbox("Data Interval", list(PERIOD_OPTIONS.keys()), index=2)
+    interval     = PERIOD_OPTIONS[period_label]
+
+    st.markdown("---")
+    st.markdown('<div class="section-label">Overlays</div>', unsafe_allow_html=True)
+    show_ma        = st.checkbox("Moving Averages (20 / 50)", value=True)
+    show_bollinger = st.checkbox("Bollinger Bands",           value=False)
+    show_volume    = st.checkbox("Volume Bars",               value=True)
+    show_rsi       = st.checkbox("RSI (14)",                  value=False)
+
+    st.markdown("---")
+    ist = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(ist)
+    st.markdown(f"""
+    <div style="font-size:.65rem; color:#475569; line-height:1.9;">
+        <div style="color:#94a3b8; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.4rem;">System</div>
+        🕐 {now.strftime('%H:%M:%S IST')}<br>
+        🔄 Refresh #<strong style="color:#00d4ff">{refresh_count}</strong><br>
+        ⏱ Next in ~30 min<br>
+        📡 Alpha Vantage API
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+#  FETCH DATA
+# ─────────────────────────────────────────────
+company = WATCHLIST.get(symbol, symbol)
+
+with st.spinner(f"Fetching {symbol} from Alpha Vantage…"):
+    try:
+        df    = fetch_av(symbol, interval, AV_KEY)
+        quote = fetch_quote(symbol, AV_KEY)
+    except ValueError as e:
+        st.error(f"⚠️ {e}")
+        st.info("Alpha Vantage free tier allows 25 requests/day and 5/minute. Wait a moment and refresh.")
+        st.stop()
+    except Exception as e:
+        st.error(f"⚠️ Data fetch failed: {e}")
+        st.stop()
+
+if df.empty:
+    st.error("No data returned for this symbol.")
+    st.stop()
+
+
+# ─────────────────────────────────────────────
+#  HEADER
+# ─────────────────────────────────────────────
+price     = quote["price"] or df["Close"].iloc[-1]
+chg_pct   = float(quote["change_pct"] or 0)
+chg_arrow = "▲" if chg_pct >= 0 else "▼"
+chg_color = "#00e676" if chg_pct >= 0 else "#ff3d57"
+
+st.markdown(f"""
+<div class="nexus-header">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem;">
+    <div>
+      <div class="nexus-title">NEXUS <span>·</span> {symbol}</div>
+      <div class="nexus-sub">{company} &nbsp;·&nbsp; {period_label} &nbsp;·&nbsp; {quote.get('latest_day','')}</div>
+    </div>
+    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:.5rem;">
+      <div style="font-family:'Syne',sans-serif; font-size:2rem; font-weight:800; color:#fff;">
+          ${price:,.2f}
+          <span style="font-size:1rem; color:{chg_color};">{chg_arrow} {abs(chg_pct):.2f}%</span>
+      </div>
+      <div class="live-badge"><div class="live-dot"></div>Alpha Vantage · Live</div>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+#  KPI METRICS
+# ─────────────────────────────────────────────
+st.markdown('<div class="section-label">Key Metrics</div>', unsafe_allow_html=True)
+
+k1, k2, k3, k4, k5, k6 = st.columns(6)
+k1.metric("Current Price",  f"${price:,.2f}",               f"{chg_pct:+.2f}%")
+k2.metric("Today Open",     f"${quote['open']:,.2f}")
+k3.metric("Today High",     f"${quote['high']:,.2f}")
+k4.metric("Today Low",      f"${quote['low']:,.2f}")
+k5.metric("Prev Close",     f"${quote['prev_close']:,.2f}")
+avg_vol = df["Volume"].mean()
+cur_vol = quote["volume"] or df["Volume"].iloc[-1]
+vol_delta = ((cur_vol - avg_vol) / avg_vol * 100) if avg_vol else 0
+k6.metric("Volume vs Avg",  f"{vol_delta:+.1f}%",
+          "↑ High" if vol_delta > 20 else ("↓ Low" if vol_delta < -20 else "Normal"))
+
+st.markdown("---")
+
+
+# ─────────────────────────────────────────────
+#  ANOMALY ALERTS
+# ─────────────────────────────────────────────
+anomalies = detect_anomalies(df)
+if not anomalies.empty:
+    st.markdown('<div class="section-label">Anomaly Alerts</div>', unsafe_allow_html=True)
+    for idx, row in anomalies.tail(3).iterrows():
+        date_str = idx.strftime("%b %d, %Y") if hasattr(idx, "strftime") else str(idx)
+        st.markdown(f"""
+        <div class="alert-box">
+            ⚠ <strong>Anomaly Detected</strong> on {date_str} —
+            Close: <strong>${row['Close']:.2f}</strong> —
+            Unusual price movement (Z-score &gt; 2.5)
+        </div>""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+#  MAIN CHART TABS
+# ─────────────────────────────────────────────
+tab1, tab2, tab3 = st.tabs(["📊  Price Chart", "📈  Technical", "📉  Volatility"])
+
+
+# ── TAB 1: Candlestick ──────────────────────
+with tab1:
+    rows        = 2 if show_volume else 1
+    row_heights = [0.75, 0.25] if show_volume else [1]
+
+    fig = make_subplots(rows=rows, cols=1, shared_xaxes=True,
+                        vertical_spacing=0.03, row_heights=row_heights)
+
     fig.add_trace(go.Candlestick(
         x=df.index, open=df["Open"], high=df["High"],
-        low=df["Low"],  close=df["Close"],
-        name=symbol,
-        increasing=dict(fillcolor=COLOR_UP,   line=dict(color=COLOR_UP,   width=1)),
-        decreasing=dict(fillcolor=COLOR_DOWN,  line=dict(color=COLOR_DOWN, width=1)),
+        low=df["Low"], close=df["Close"], name=symbol,
+        increasing=dict(fillcolor=COLOR_UP,  line=dict(color=COLOR_UP,  width=1)),
+        decreasing=dict(fillcolor=COLOR_DOWN, line=dict(color=COLOR_DOWN, width=1)),
     ), row=1, col=1)
 
-    # Moving averages
     if show_ma:
-        for window, color in [(20, "#00d4ff"), (50, "#fbbf24")]:
-            ma = df["Close"].rolling(window).mean()
+        for w, c in [(20, "#00d4ff"), (50, "#fbbf24")]:
             fig.add_trace(go.Scatter(
-                x=df.index, y=ma, name=f"MA{window}",
-                line=dict(color=color, width=1.5, dash="dot"),
-                opacity=0.85,
+                x=df.index, y=df["Close"].rolling(w).mean(),
+                name=f"MA{w}", line=dict(color=c, width=1.5, dash="dot"), opacity=.85,
             ), row=1, col=1)
 
-    # Bollinger Bands
     if show_bollinger:
-        ma20   = df["Close"].rolling(20).mean()
-        std20  = df["Close"].rolling(20).std()
-        upper  = ma20 + 2 * std20
-        lower  = ma20 - 2 * std20
-        for y, nm, c in [(upper, "BB Upper", "#7c3aed"), (lower, "BB Lower", "#7c3aed")]:
+        ma20  = df["Close"].rolling(20).mean()
+        std20 = df["Close"].rolling(20).std()
+        for y, nm, c in [(ma20+2*std20, "BB Upper", "#7c3aed"),
+                         (ma20-2*std20, "BB Lower", "#7c3aed")]:
             fig.add_trace(go.Scatter(
                 x=df.index, y=y, name=nm,
-                line=dict(color=c, width=1, dash="dash"),
-                opacity=0.6,
+                line=dict(color=c, width=1, dash="dash"), opacity=.6,
             ), row=1, col=1)
-        fig.add_trace(go.Scatter(
-            x=list(df.index) + list(df.index[::-1]),
-            y=list(upper) + list(lower[::-1]),
-            fill="toself", fillcolor="rgba(124,58,237,.06)",
-            line=dict(width=0), name="BB Band", showlegend=False,
-        ), row=1, col=1)
 
-    # Anomaly markers
     if not anomalies.empty:
         fig.add_trace(go.Scatter(
-            x=anomalies.index, y=anomalies["Close"],
-            mode="markers",
+            x=anomalies.index, y=anomalies["Close"], mode="markers",
             marker=dict(symbol="x", size=12, color=COLOR_DOWN, line=dict(width=2)),
             name="Anomaly",
         ), row=1, col=1)
 
-    # Volume bars
-    if show_volume and "Volume" in df:
+    if show_volume:
         colors = [COLOR_UP if c >= o else COLOR_DOWN
                   for c, o in zip(df["Close"], df["Open"])]
         fig.add_trace(go.Bar(
             x=df.index, y=df["Volume"],
-            marker_color=colors, name="Volume",
-            opacity=0.6,
+            marker_color=colors, name="Volume", opacity=.6,
         ), row=2, col=1)
-        fig.update_yaxes(title_text="Volume", row=2, col=1,
-                         title_font=dict(size=9))
+        fig.update_yaxes(title_text="Volume", row=2, col=1, title_font=dict(size=9))
 
-    fig.update_layout(
-        **layout_base,
-        height=560,
-        xaxis_rangeslider_visible=False,
-        title=dict(text=f"{symbol} — {company}",
-                   font=dict(family="Syne, sans-serif", size=14, color="#e2e8f0")),
-    )
+    fig.update_layout(**layout_base, height=560,
+                      xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
 
-# ─── TAB 2: Technical Indicators ───
+# ── TAB 2: Technical ────────────────────────
 with tab2:
-    sub_rows = 1 + int(show_rsi) + int(show_vol_idx)
-    heights  = ([0.5] + [0.25] * (sub_rows - 1)) if sub_rows > 1 else [1]
+    sub_rows = 1 + int(show_rsi)
+    heights  = ([0.6, 0.4] if show_rsi else [1])
 
-    fig2 = make_subplots(rows=sub_rows, cols=1,
-                         shared_xaxes=True,
-                         vertical_spacing=0.04,
-                         row_heights=heights)
+    fig2 = make_subplots(rows=sub_rows, cols=1, shared_xaxes=True,
+                         vertical_spacing=0.04, row_heights=heights)
 
-    # Price line
     fig2.add_trace(go.Scatter(
         x=df.index, y=df["Close"], name="Close",
         line=dict(color=COLOR_NEUT, width=2),
         fill="tozeroy", fillcolor="rgba(0,212,255,.05)",
     ), row=1, col=1)
 
-    cur_row = 2
     if show_rsi:
         rsi = compute_rsi(df["Close"])
         fig2.add_trace(go.Scatter(
             x=df.index, y=rsi, name="RSI(14)",
             line=dict(color="#fbbf24", width=1.5),
-        ), row=cur_row, col=1)
+        ), row=2, col=1)
         for level, col in [(70, "rgba(255,61,87,.3)"), (30, "rgba(0,230,118,.3)")]:
-            fig2.add_hline(y=level, line_dash="dot", line_color=col,
-                           row=cur_row, col=1)
-        fig2.update_yaxes(title_text="RSI", row=cur_row, col=1,
+            fig2.add_hline(y=level, line_dash="dot", line_color=col, row=2, col=1)
+        fig2.update_yaxes(title_text="RSI", row=2, col=1,
                           range=[0, 100], title_font=dict(size=9))
-        cur_row += 1
 
-    if show_vol_idx:
-        vol_idx = compute_volatility(df)
-        fig2.add_trace(go.Scatter(
-            x=df.index, y=vol_idx, name="Volatility %",
-            line=dict(color="#7c3aed", width=1.5),
-            fill="tozeroy", fillcolor="rgba(124,58,237,.07)",
-        ), row=cur_row, col=1)
-        fig2.update_yaxes(title_text="Annualised Vol %", row=cur_row, col=1,
-                          title_font=dict(size=9))
-
-    fig2.update_layout(**layout_base, height=500,
+    fig2.update_layout(**layout_base, height=480,
                        xaxis_rangeslider_visible=False)
     st.plotly_chart(fig2, use_container_width=True)
 
 
-# ─── TAB 3: Comparison ───
+# ── TAB 3: Volatility ───────────────────────
 with tab3:
-    if not compare_syms:
-        st.info("Select symbols in the sidebar to compare.")
-    else:
-        fig3 = go.Figure()
-        # Normalise to 100
-        base = df["Close"].iloc[0]
-        fig3.add_trace(go.Scatter(
-            x=df.index,
-            y=(df["Close"] / base) * 100,
-            name=symbol,
-            line=dict(color=COLOR_NEUT, width=2),
-        ))
-        palette = ["#fbbf24", "#00e676", "#f472b6", "#a78bfa"]
-        for i, sym in enumerate(compare_syms):
-            cdf, _ = fetch_ticker(sym, period, interval)
-            if not cdf.empty:
-                cb = cdf["Close"].iloc[0]
-                fig3.add_trace(go.Scatter(
-                    x=cdf.index,
-                    y=(cdf["Close"] / cb) * 100,
-                    name=sym,
-                    line=dict(color=palette[i % len(palette)], width=2),
-                ))
-
-        fig3.update_layout(
-            **layout_base,
-            height=460,
-            title=dict(text="Normalised Performance (Base = 100)",
-                       font=dict(family="Syne, sans-serif", size=13, color="#e2e8f0")),
-            yaxis_title="Index Value",
-        )
-        st.plotly_chart(fig3, use_container_width=True)
-
-
-# ─── TAB 4: Volatility Deep-Dive ───
-with tab4:
     c1, c2 = st.columns(2)
 
-    # Return distribution
     with c1:
-        st.markdown('<div class="section-label">Daily Return Distribution</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Daily Return Distribution</div>',
+                    unsafe_allow_html=True)
         returns = df["Close"].pct_change().dropna() * 100
-        fig4a = go.Figure()
-        fig4a.add_trace(go.Histogram(
+        fig3a = go.Figure(go.Histogram(
             x=returns, nbinsx=40,
             marker_color=COLOR_NEUT,
             marker_line=dict(color=PLOT_BG, width=.5),
-            opacity=0.85,
-            name="Returns",
+            opacity=0.85, name="Returns",
         ))
-        fig4a.update_layout(**layout_base, height=340,
-                            xaxis_title="Daily Return %",
-                            bargap=0.05)
-        st.plotly_chart(fig4a, use_container_width=True)
+        fig3a.update_layout(**layout_base, height=320,
+                            xaxis_title="Daily Return %", bargap=0.05)
+        st.plotly_chart(fig3a, use_container_width=True)
 
-    # 7-day rolling trend
     with c2:
-        st.markdown('<div class="section-label">7-Day Rolling Trend</div>', unsafe_allow_html=True)
-        roll7  = df["Close"].rolling(7).mean()
-        fig4b  = go.Figure()
-        fig4b.add_trace(go.Scatter(
-            x=df.index, y=df["Close"],
-            name="Close", line=dict(color="#334155", width=1), opacity=0.5,
+        st.markdown('<div class="section-label">7-Day Rolling Trend</div>',
+                    unsafe_allow_html=True)
+        roll7 = df["Close"].rolling(7).mean()
+        fig3b = go.Figure()
+        fig3b.add_trace(go.Scatter(
+            x=df.index, y=df["Close"], name="Close",
+            line=dict(color="#334155", width=1), opacity=.5,
         ))
-        fig4b.add_trace(go.Scatter(
-            x=df.index, y=roll7,
-            name="7-Day MA", line=dict(color=COLOR_UP, width=2.5),
+        fig3b.add_trace(go.Scatter(
+            x=df.index, y=roll7, name="7-Day MA",
+            line=dict(color=COLOR_UP, width=2.5),
             fill="tozeroy", fillcolor="rgba(0,230,118,.06)",
         ))
-        fig4b.update_layout(**layout_base, height=340)
-        st.plotly_chart(fig4b, use_container_width=True)
+        fig3b.update_layout(**layout_base, height=320)
+        st.plotly_chart(fig3b, use_container_width=True)
 
-    # Volatility cone
-    st.markdown('<div class="section-label">Rolling Volatility (Annualised)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">Rolling Volatility (Annualised)</div>',
+                unsafe_allow_html=True)
     log_ret = np.log(df["Close"] / df["Close"].shift(1))
-    vol_10  = log_ret.rolling(10).std()  * np.sqrt(252) * 100
-    vol_20  = log_ret.rolling(20).std()  * np.sqrt(252) * 100
-    vol_30  = log_ret.rolling(30).std()  * np.sqrt(252) * 100
-
-    fig4c = go.Figure()
-    for vol_s, nm, c in [(vol_30, "30-Day", "#7c3aed"),
-                         (vol_20, "20-Day", "#00d4ff"),
-                         (vol_10, "10-Day", "#fbbf24")]:
-        fig4c.add_trace(go.Scatter(
-            x=df.index, y=vol_s, name=nm,
-            line=dict(color=c, width=1.8),
+    fig3c = go.Figure()
+    for w, nm, c in [(10, "10-Day", "#fbbf24"),
+                     (20, "20-Day", "#00d4ff"),
+                     (30, "30-Day", "#7c3aed")]:
+        fig3c.add_trace(go.Scatter(
+            x=df.index,
+            y=log_ret.rolling(w).std() * np.sqrt(252) * 100,
+            name=nm, line=dict(color=c, width=1.8),
         ))
-    fig4c.update_layout(**layout_base, height=320,
-                        yaxis_title="Annualised Vol %")
-    st.plotly_chart(fig4c, use_container_width=True)
+    fig3c.update_layout(**layout_base, height=300, yaxis_title="Annualised Vol %")
+    st.plotly_chart(fig3c, use_container_width=True)
 
 
 # ─────────────────────────────────────────────
-#  RAW DATA TABLE (collapsible)
+#  RAW DATA TABLE
 # ─────────────────────────────────────────────
 st.markdown("---")
-with st.expander("📋  Raw OHLCV Data"):
+with st.expander("📋  Raw OHLCV Data (last 30 rows)"):
     display_df = df[["Open", "High", "Low", "Close", "Volume"]].tail(30).copy()
-    display_df.index = display_df.index.strftime("%Y-%m-%d %H:%M")
+    display_df.index = display_df.index.strftime("%Y-%m-%d")
     st.dataframe(display_df, use_container_width=True)
 
 
 # ─────────────────────────────────────────────
 #  FOOTER
 # ─────────────────────────────────────────────
+ist = pytz.timezone("Asia/Kolkata")
 st.markdown(f"""
 <div style="text-align:center; padding:1.5rem 0 .5rem; color:#334155; font-size:.65rem; letter-spacing:.1em;">
-    NEXUS STOCK INTELLIGENCE &nbsp;·&nbsp; POWERED BY YAHOO FINANCE (yfinance) &nbsp;·&nbsp;
-    AUTO-REFRESH: 30 MIN &nbsp;·&nbsp; LAST UPDATED: {datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%d %b %Y, %H:%M:%S IST')}
+    NEXUS STOCK INTELLIGENCE &nbsp;·&nbsp; ALPHA VANTAGE API &nbsp;·&nbsp;
+    AUTO-REFRESH: 30 MIN &nbsp;·&nbsp;
+    LAST UPDATED: {datetime.now(ist).strftime('%d %b %Y, %H:%M:%S IST')}
 </div>
 """, unsafe_allow_html=True)
