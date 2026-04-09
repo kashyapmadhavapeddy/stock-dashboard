@@ -208,11 +208,9 @@ WATCHLIST = {
 }
 
 PERIOD_OPTIONS = {
-    "1 Month":  "monthly",
-    "Weekly":   "weekly",
-    "Daily":    "daily",
-    "Intraday (60min)": "60min",
-    "Intraday (15min)": "15min",
+    "Daily (3 months)":   "daily",
+    "Weekly (1 year)":    "weekly",
+    "Monthly (5 years)":  "monthly",
 }
 
 COLOR_UP   = "#00e676"
@@ -375,39 +373,40 @@ if not AV_KEY:
 
 
 # ─────────────────────────────────────────────
-#  CONTROLS — always visible in main page
+#  SIDEBAR — all controls live here
 # ─────────────────────────────────────────────
-ist = pytz.timezone("Asia/Kolkata")
-now = datetime.now(ist)
+with st.sidebar:
+    st.markdown('<div class="section-label">Configuration</div>', unsafe_allow_html=True)
 
-ctrl_left, ctrl_mid, ctrl_right = st.columns([3, 3, 2])
-
-with ctrl_left:
     symbol = st.selectbox(
-        "📈 Symbol",
+        "Symbol",
         list(WATCHLIST.keys()),
         format_func=lambda x: f"{x}  —  {WATCHLIST[x]}",
     )
 
-with ctrl_mid:
-    period_label = st.selectbox("🕐 Data Interval", list(PERIOD_OPTIONS.keys()), index=2)
+    period_label = st.selectbox("Time Range", list(PERIOD_OPTIONS.keys()), index=0)
     interval = PERIOD_OPTIONS[period_label]
 
-with ctrl_right:
+    st.markdown("---")
+    st.markdown('<div class="section-label">Chart Overlays</div>', unsafe_allow_html=True)
+    show_ma        = st.checkbox("Moving Averages (20 / 50)", value=True)
+    show_bollinger = st.checkbox("Bollinger Bands",           value=False)
+    show_volume    = st.checkbox("Volume Bars",               value=True)
+    show_rsi       = st.checkbox("RSI (14)",                  value=False)
+
+    st.markdown("---")
+    ist = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(ist)
     st.markdown(f"""
-    <div style="font-size:.65rem; color:#475569; line-height:1.9; padding-top:.3rem;">
-        🕐 {now.strftime('%H:%M IST')}&nbsp;&nbsp;
-        🔄 Refresh #{refresh_count}&nbsp;&nbsp;
-        📡 Alpha Vantage
+    <div style="font-size:.65rem; color:#475569; line-height:2;">
+        <div style="color:#94a3b8; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.4rem;">System</div>
+        🕐 {now.strftime('%H:%M:%S IST')}<br>
+        🔄 Refresh #<strong style="color:#00d4ff">{refresh_count}</strong><br>
+        ⏱ Next refresh in ~30 min<br>
+        📡 Alpha Vantage API<br><br>
+        <span style="color:#334155;">Press <kbd style="background:#1e2d42;color:#94a3b8;padding:.1rem .4rem;border-radius:4px;font-size:.7rem;">【</kbd> to hide/show this panel</span>
     </div>
     """, unsafe_allow_html=True)
-
-# Overlay toggles in a second row
-ov1, ov2, ov3, ov4 = st.columns(4)
-show_ma        = ov1.checkbox("MA (20/50)",      value=True)
-show_bollinger = ov2.checkbox("Bollinger Bands", value=False)
-show_volume    = ov3.checkbox("Volume Bars",     value=True)
-show_rsi       = ov4.checkbox("RSI (14)",        value=False)
 
 st.markdown("---")
 
