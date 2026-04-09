@@ -80,7 +80,9 @@ html, body, [class*="css"] {
 }
 .main { background: var(--bg) !important; }
 .block-container { padding: 1.5rem 2rem 2rem !important; max-width: 1600px; }
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
+/* Keep the sidebar toggle arrow always visible */
+[data-testid="collapsedControl"] { visibility: visible !important; display: flex !important; }
 
 [data-testid="stSidebar"] {
     background: var(--surface) !important;
