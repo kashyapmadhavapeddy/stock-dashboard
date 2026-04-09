@@ -360,16 +360,6 @@ def detect_anomalies(df, z_thresh=2.5):
 
 
 # ─────────────────────────────────────────────
-#  SIDEBAR TOGGLE BUTTON
-# ─────────────────────────────────────────────
-if st.button("\u2630  Settings & Filters"):
-    js = """<script>
-    const btn = window.parent.document.querySelector('[data-testid="collapsedControl"]');
-    if(btn) btn.click();
-    </script>"""
-    components.html(js, height=0)
-
-# ─────────────────────────────────────────────
 #  NO API KEY GUARD
 # ─────────────────────────────────────────────
 if not AV_KEY:
@@ -385,39 +375,41 @@ if not AV_KEY:
 
 
 # ─────────────────────────────────────────────
-#  SIDEBAR
+#  CONTROLS — always visible in main page
 # ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown('<div class="section-label">Configuration</div>', unsafe_allow_html=True)
+ist = pytz.timezone("Asia/Kolkata")
+now = datetime.now(ist)
 
+ctrl_left, ctrl_mid, ctrl_right = st.columns([3, 3, 2])
+
+with ctrl_left:
     symbol = st.selectbox(
-        "Primary Symbol",
+        "📈 Symbol",
         list(WATCHLIST.keys()),
         format_func=lambda x: f"{x}  —  {WATCHLIST[x]}",
     )
 
-    period_label = st.selectbox("Data Interval", list(PERIOD_OPTIONS.keys()), index=2)
-    interval     = PERIOD_OPTIONS[period_label]
+with ctrl_mid:
+    period_label = st.selectbox("🕐 Data Interval", list(PERIOD_OPTIONS.keys()), index=2)
+    interval = PERIOD_OPTIONS[period_label]
 
-    st.markdown("---")
-    st.markdown('<div class="section-label">Overlays</div>', unsafe_allow_html=True)
-    show_ma        = st.checkbox("Moving Averages (20 / 50)", value=True)
-    show_bollinger = st.checkbox("Bollinger Bands",           value=False)
-    show_volume    = st.checkbox("Volume Bars",               value=True)
-    show_rsi       = st.checkbox("RSI (14)",                  value=False)
-
-    st.markdown("---")
-    ist = pytz.timezone("Asia/Kolkata")
-    now = datetime.now(ist)
+with ctrl_right:
     st.markdown(f"""
-    <div style="font-size:.65rem; color:#475569; line-height:1.9;">
-        <div style="color:#94a3b8; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.4rem;">System</div>
-        🕐 {now.strftime('%H:%M:%S IST')}<br>
-        🔄 Refresh #<strong style="color:#00d4ff">{refresh_count}</strong><br>
-        ⏱ Next in ~30 min<br>
-        📡 Alpha Vantage API
+    <div style="font-size:.65rem; color:#475569; line-height:1.9; padding-top:.3rem;">
+        🕐 {now.strftime('%H:%M IST')}&nbsp;&nbsp;
+        🔄 Refresh #{refresh_count}&nbsp;&nbsp;
+        📡 Alpha Vantage
     </div>
     """, unsafe_allow_html=True)
+
+# Overlay toggles in a second row
+ov1, ov2, ov3, ov4 = st.columns(4)
+show_ma        = ov1.checkbox("MA (20/50)",      value=True)
+show_bollinger = ov2.checkbox("Bollinger Bands", value=False)
+show_volume    = ov3.checkbox("Volume Bars",     value=True)
+show_rsi       = ov4.checkbox("RSI (14)",        value=False)
+
+st.markdown("---")
 
 
 # ─────────────────────────────────────────────
