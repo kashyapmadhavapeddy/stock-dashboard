@@ -15,7 +15,7 @@ from plotly.subplots import make_subplots
 import numpy as np
 from datetime import datetime, timedelta
 import pytz
-from streamlit_autorefresh import st_autorefresh
+import time
 
 # ─────────────────────────────────────────────
 #  PAGE CONFIG
@@ -28,9 +28,20 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-#  AUTO-REFRESH EVERY 30 MINUTES (1800000 ms)
+#  AUTO-REFRESH EVERY 30 MINUTES (pure Streamlit)
 # ─────────────────────────────────────────────
-refresh_count = st_autorefresh(interval=1800000, key="data_refresh")
+if "last_refresh" not in st.session_state:
+    st.session_state.last_refresh = time.time()
+    st.session_state.refresh_count = 0
+
+elapsed = time.time() - st.session_state.last_refresh
+if elapsed >= 1800:
+    st.session_state.last_refresh = time.time()
+    st.session_state.refresh_count += 1
+    st.cache_data.clear()
+    st.rerun()
+
+refresh_count = st.session_state.refresh_count
 
 # ─────────────────────────────────────────────
 #  GLOBAL CSS — Dark luxury aesthetic
