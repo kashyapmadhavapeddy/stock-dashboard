@@ -386,6 +386,14 @@ with st.sidebar:
         format_func=lambda x: f"{x}  —  {WATCHLIST[x]}",
     )
 
+    compare_syms = st.multiselect(
+        "Compare With",
+        [k for k in WATCHLIST if k != symbol],
+        default=[],
+        max_selections=3,
+        format_func=lambda x: f"{x}  —  {WATCHLIST[x]}",
+    )
+
     period_label = st.selectbox("Time Range", list(PERIOD_OPTIONS.keys()), index=0)
     interval = PERIOD_OPTIONS[period_label]
 
@@ -501,7 +509,7 @@ if not anomalies.empty:
 # ─────────────────────────────────────────────
 #  MAIN CHART TABS
 # ─────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["📊  Price Chart", "📈  Technical", "📉  Volatility"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊  Price Chart", "📈  Technical", "🌐  Comparison", "📉  Volatility"])
 
 
 # ── TAB 1: Candlestick ──────────────────────
@@ -589,6 +597,45 @@ with tab2:
 
 # ── TAB 3: Volatility ───────────────────────
 with tab3:
+    if not compare_syms:
+        st.info("Select symbols in the sidebar under **Compare With** to overlay them here.")
+    else:
+        fig_cmp = go.Figure()
+        # Normalise primary to 100
+        base = df["Close"].iloc[0]
+        fig_cmp.add_trace(go.Scatter(
+            x=df.index,
+            y=(df["Close"] / base) * 100,
+            name=symbol,
+            line=dict(color="#00d4ff", width=2.5),
+        ))
+        palette = ["#fbbf24", "#00e676", "#f472b6"]
+        for i, sym in enumerate(compare_syms):
+            try:
+                cdf = fetch_av(sym, interval, AV_KEY)
+                if not cdf.empty:
+                    cb = cdf["Close"].iloc[0]
+                    fig_cmp.add_trace(go.Scatter(
+                        x=cdf.index,
+                        y=(cdf["Close"] / cb) * 100,
+                        name=sym,
+                        line=dict(color=palette[i % len(palette)], width=2),
+                    ))
+            except Exception:
+                st.warning(f"Could not fetch data for {sym}")
+
+        fig_cmp.update_layout(
+            **layout_base,
+            height=480,
+            title=dict(
+                text="Normalised Performance (Base = 100)",
+                font=dict(family="Syne, sans-serif", size=13, color="#e2e8f0"),
+            ),
+            yaxis_title="Index Value",
+        )
+        st.plotly_chart(fig_cmp, use_container_width=True)
+
+with tab4:
     c1, c2 = st.columns(2)
 
     with c1:
