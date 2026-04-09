@@ -7,6 +7,7 @@
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
@@ -24,12 +25,15 @@ st.set_page_config(
     page_title="NEXUS · Stock Intelligence",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 # ─────────────────────────────────────────────
 #  AUTO-REFRESH EVERY 30 MINUTES (pure Streamlit)
 # ─────────────────────────────────────────────
+# Force sidebar open on every load
+st.session_state["sidebar_state"] = "expanded"
+
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = time.time()
     st.session_state.refresh_count = 0
@@ -356,6 +360,38 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+
+# ─────────────────────────────────────────────
+#  SIDEBAR TOGGLE BUTTON
+# ─────────────────────────────────────────────
+toggle_css = """
+<style>
+div[data-testid="stButton"] > button {
+    background: rgba(0,212,255,.08) !important;
+    border: 1px solid rgba(0,212,255,.25) !important;
+    color: #00d4ff !important;
+    font-family: JetBrains Mono, monospace !important;
+    font-size: .72rem !important;
+    letter-spacing: .1em !important;
+    padding: .3rem 1rem !important;
+    border-radius: 8px !important;
+    transition: all .2s;
+}
+div[data-testid="stButton"] > button:hover {
+    background: rgba(0,212,255,.18) !important;
+}
+</style>
+"""
+st.markdown(toggle_css, unsafe_allow_html=True)
+
+if st.button("\u2630  Settings & Filters"):
+    st.session_state["_sb"] = not st.session_state.get("_sb", True)
+    js = """<script>
+    const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+    const btn     = window.parent.document.querySelector('[data-testid="collapsedControl"]');
+    if (sidebar) { btn && btn.click(); }
+    </script>"""
+    st.components.v1.html(js, height=0)
 
 # ─────────────────────────────────────────────
 #  HEADER
