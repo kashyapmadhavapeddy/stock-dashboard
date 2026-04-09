@@ -263,7 +263,26 @@ GRID_COLOR = "#1e2d42"
 def fetch_ticker(symbol: str, period: str = "1mo", interval: str = "1d"):
     tk = yf.Ticker(symbol)
     df = tk.history(period=period, interval=interval)
-    info = tk.fast_info
+    # Extract only plain serialisable values from fast_info
+    # (the raw FastInfo object cannot be pickled by st.cache_data)
+    try:
+        fi = tk.fast_info
+        info = {
+            "last_price":       getattr(fi, "last_price",       None),
+            "previous_close":   getattr(fi, "previous_close",   None),
+            "open":             getattr(fi, "open",              None),
+            "day_high":         getattr(fi, "day_high",         None),
+            "day_low":          getattr(fi, "day_low",          None),
+            "fifty_two_week_high": getattr(fi, "fifty_two_week_high", None),
+            "fifty_two_week_low":  getattr(fi, "fifty_two_week_low",  None),
+            "market_cap":       getattr(fi, "market_cap",       None),
+            "shares":           getattr(fi, "shares",           None),
+            "currency":         getattr(fi, "currency",         None),
+            "exchange":         getattr(fi, "exchange",         None),
+            "timezone":         getattr(fi, "timezone",         None),
+        }
+    except Exception:
+        info = {}
     return df, info
 
 
