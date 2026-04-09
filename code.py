@@ -679,10 +679,7 @@ st.markdown("---")
 with st.expander("📋  Raw OHLCV Data"):
     display_df = df[["Open", "High", "Low", "Close", "Volume"]].tail(30).copy()
     display_df.index = display_df.index.strftime("%Y-%m-%d %H:%M")
-    st.dataframe(
-        display_df.style.background_gradient(subset=["Close"], cmap="Blues"),
-        use_container_width=True,
-    )
+    st.dataframe(display_df, use_container_width=True)
 
 
 # ─────────────────────────────────────────────
