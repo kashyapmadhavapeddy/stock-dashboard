@@ -609,7 +609,7 @@ with st.expander("📋  Raw OHLCV Data (last 30 rows)"):
 ist = pytz.timezone("Asia/Kolkata")
 st.markdown(f"""
 <div style="text-align:center; padding:1.5rem 0 .5rem; color:#334155; font-size:.65rem; letter-spacing:.1em;">
-    NEXUS STOCK INTELLIGENCE &nbsp;·&nbsp; ALPHA VANTAGE API &nbsp;·&nbsp;
+    NEXUS STOCK INTELLIGENCE &nbsp;·&nbsp;  &nbsp;·&nbsp;
     AUTO-REFRESH: 30 MIN &nbsp;·&nbsp;
     LAST UPDATED: {datetime.now(ist).strftime('%d %b %Y, %H:%M:%S IST')}
 </div>
