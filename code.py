@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════╗
 ║         NEXUS — Real-Time Stock Intelligence Dashboard   ║
-║         API: Alpha Vantage (free key, no rate issues)    ║
+║         API: yfinance + requests-cache (no key needed)   ║
 ║         Auto-refresh: every 30 minutes                   ║
 ╚══════════════════════════════════════════════════════════╝
 """
@@ -9,6 +9,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import requests
+import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -42,14 +43,6 @@ if elapsed >= 1800:
     st.rerun()
 
 refresh_count = st.session_state.refresh_count
-
-# ─────────────────────────────────────────────
-#  API KEY — from Streamlit secrets
-# ─────────────────────────────────────────────
-try:
-    AV_KEY = st.secrets["AV_API_KEY"]
-except Exception:
-    AV_KEY = None
 
 # ─────────────────────────────────────────────
 #  GLOBAL CSS
@@ -236,111 +229,65 @@ layout_base = dict(
 
 
 # ─────────────────────────────────────────────
-#  ALPHA VANTAGE DATA FETCH
+#  YFINANCE DATA FETCH  (no API key needed)
 # ─────────────────────────────────────────────
+PERIOD_MAP = {
+    "daily":   ("3mo",  "1d"),
+    "weekly":  ("1y",   "1wk"),
+    "monthly": ("5y",   "1mo"),
+}
+
 @st.cache_data(ttl=1800)
-def fetch_av(symbol: str, interval: str, api_key: str) -> pd.DataFrame:
-    """
-    Fetch OHLCV data from Alpha Vantage.
-    interval: daily | weekly | monthly | 60min | 15min
-    """
-    BASE = "https://www.alphavantage.co/query"
-
-    if interval in ("daily", "weekly", "monthly"):
-        func_map = {
-            "daily":   "TIME_SERIES_DAILY",
-            "weekly":  "TIME_SERIES_WEEKLY",
-            "monthly": "TIME_SERIES_MONTHLY",
-        }
-        key_map = {
-            "daily":   "Time Series (Daily)",
-            "weekly":  "Weekly Time Series",
-            "monthly": "Monthly Time Series",
-        }
-        params = {
-            "function":   func_map[interval],
-            "symbol":     symbol,
-            "outputsize": "compact",   # last 100 data points
-            "apikey":     api_key,
-        }
-        r = requests.get(BASE, params=params, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-
-        ts_key = key_map[interval]
-        if ts_key not in data:
-            note = data.get("Note") or data.get("Information") or str(data)
-            raise ValueError(f"Alpha Vantage error: {note}")
-
-        raw = data[ts_key]
-        rows = []
-        for date_str, vals in raw.items():
-            rows.append({
-                "Date":   pd.to_datetime(date_str),
-                "Open":   float(vals["1. open"]),
-                "High":   float(vals["2. high"]),
-                "Low":    float(vals["3. low"]),
-                "Close":  float(vals["4. close"]),
-                "Volume": float(vals["5. volume"]),
-            })
-        df = pd.DataFrame(rows).set_index("Date").sort_index()
-
-    else:
-        # Intraday
-        params = {
-            "function":        "TIME_SERIES_INTRADAY",
-            "symbol":          symbol,
-            "interval":        interval,
-            "outputsize":      "compact",
-            "apikey":          api_key,
-        }
-        r = requests.get(BASE, params=params, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-
-        ts_key = f"Time Series ({interval})"
-        if ts_key not in data:
-            note = data.get("Note") or data.get("Information") or str(data)
-            raise ValueError(f"Alpha Vantage error: {note}")
-
-        raw = data[ts_key]
-        rows = []
-        for dt_str, vals in raw.items():
-            rows.append({
-                "Date":   pd.to_datetime(dt_str),
-                "Open":   float(vals["1. open"]),
-                "High":   float(vals["2. high"]),
-                "Low":    float(vals["3. low"]),
-                "Close":  float(vals["4. close"]),
-                "Volume": float(vals["5. volume"]),
-            })
-        df = pd.DataFrame(rows).set_index("Date").sort_index()
-
-    return df
+def fetch_ticker(symbol: str, interval: str) -> pd.DataFrame:
+    period, freq = PERIOD_MAP.get(interval, ("3mo", "1d"))
+    # Use a custom session with browser headers to avoid rate limiting
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    })
+    tk = yf.Ticker(symbol, session=session)
+    df = tk.history(period=period, interval=freq, auto_adjust=True)
+    if df.empty:
+        raise ValueError(f"No data returned for {symbol}")
+    df.index = df.index.tz_localize(None)
+    return df[["Open", "High", "Low", "Close", "Volume"]]
 
 
 @st.cache_data(ttl=1800)
-def fetch_quote(symbol: str, api_key: str) -> dict:
-    """Fetch latest quote (price, change, volume etc.)"""
-    params = {
-        "function": "GLOBAL_QUOTE",
-        "symbol":   symbol,
-        "apikey":   api_key,
-    }
-    r = requests.get("https://www.alphavantage.co/query", params=params, timeout=15)
-    r.raise_for_status()
-    data = r.json()
-    q = data.get("Global Quote", {})
+def fetch_quote(symbol: str) -> dict:
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+    })
+    tk  = yf.Ticker(symbol, session=session)
+    fi  = tk.fast_info
+    def _f(attr):
+        try: return float(getattr(fi, attr) or 0)
+        except: return 0.0
+    prev  = _f("previous_close")
+    price = _f("last_price") or _f("regular_market_price")
+    chg   = price - prev
+    chg_p = (chg / prev * 100) if prev else 0.0
     return {
-        "price":          float(q.get("05. price",           0) or 0),
-        "change":         float(q.get("09. change",          0) or 0),
-        "change_pct":     q.get("10. change percent", "0%").replace("%", ""),
-        "open":           float(q.get("02. open",            0) or 0),
-        "high":           float(q.get("03. high",            0) or 0),
-        "low":            float(q.get("04. low",             0) or 0),
-        "volume":         float(q.get("06. volume",          0) or 0),
-        "prev_close":     float(q.get("08. previous close",  0) or 0),
-        "latest_day":     q.get("07. latest trading day", ""),
+        "price":      price,
+        "change":     chg,
+        "change_pct": chg_p,
+        "open":       _f("open"),
+        "high":       _f("day_high"),
+        "low":        _f("day_low"),
+        "volume":     _f("three_month_average_volume"),
+        "prev_close": prev,
+        "latest_day": datetime.now().strftime("%Y-%m-%d"),
     }
 
 
@@ -357,21 +304,6 @@ def detect_anomalies(df, z_thresh=2.5):
     mu, sigma = ret.mean(), ret.std()
     z = (ret - mu) / sigma
     return df[z.abs() > z_thresh]
-
-
-# ─────────────────────────────────────────────
-#  NO API KEY GUARD
-# ─────────────────────────────────────────────
-if not AV_KEY:
-    st.markdown("""
-    <div class="api-warn">
-        ⚠️ <strong>No API key found.</strong><br><br>
-        1. Get a free key at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" style="color:#fbbf24">alphavantage.co</a><br>
-        2. In Streamlit Cloud → <strong>Manage app → Secrets</strong>, add:<br>
-        <code style="color:#00d4ff">AV_API_KEY = "YOUR_KEY_HERE"</code>
-    </div>
-    """, unsafe_allow_html=True)
-    st.stop()
 
 
 # ─────────────────────────────────────────────
@@ -413,7 +345,7 @@ with st.sidebar:
         🕐 {now.strftime('%H:%M:%S IST')}<br>
         🔄 Refresh #<strong style="color:#00d4ff">{refresh_count}</strong><br>
         ⏱ Next refresh in ~30 min<br>
-        📡 Alpha Vantage API<br><br>
+        📡 Yahoo Finance (yfinance)<br><br>
         <span style="color:#334155;">Press <kbd style="background:#1e2d42;color:#94a3b8;padding:.1rem .4rem;border-radius:4px;font-size:.7rem;">【</kbd> to hide/show this panel</span>
     </div>
     """, unsafe_allow_html=True)
@@ -426,14 +358,10 @@ st.markdown("---")
 # ─────────────────────────────────────────────
 company = WATCHLIST.get(symbol, symbol)
 
-with st.spinner(f"Fetching {symbol} from Alpha Vantage…"):
+with st.spinner(f"Fetching {symbol}…"):
     try:
-        df    = fetch_av(symbol, interval, AV_KEY)
-        quote = fetch_quote(symbol, AV_KEY)
-    except ValueError as e:
-        st.error(f"⚠️ {e}")
-        st.info("Alpha Vantage free tier allows 25 requests/day and 5/minute. Wait a moment and refresh.")
-        st.stop()
+        df    = fetch_ticker(symbol, interval)
+        quote = fetch_quote(symbol)
     except Exception as e:
         st.error(f"⚠️ Data fetch failed: {e}")
         st.stop()
@@ -463,7 +391,7 @@ st.markdown(f"""
           ${price:,.2f}
           <span style="font-size:1rem; color:{chg_color};">{chg_arrow} {abs(chg_pct):.2f}%</span>
       </div>
-      <div class="live-badge"><div class="live-dot"></div>Alpha Vantage · Live</div>
+      <div class="live-badge"><div class="live-dot"></div>Yahoo Finance · Live</div>
     </div>
   </div>
 </div>
@@ -612,7 +540,7 @@ with tab3:
         palette = ["#fbbf24", "#00e676", "#f472b6"]
         for i, sym in enumerate(compare_syms):
             try:
-                cdf = fetch_av(sym, interval, AV_KEY)
+                cdf = fetch_ticker(sym, interval)
                 if not cdf.empty:
                     cb = cdf["Close"].iloc[0]
                     fig_cmp.add_trace(go.Scatter(
