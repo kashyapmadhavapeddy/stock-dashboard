@@ -8,7 +8,6 @@
 
 import streamlit as st
 import streamlit.components.v1 as components
-import requests
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
@@ -240,18 +239,7 @@ PERIOD_MAP = {
 @st.cache_data(ttl=1800)
 def fetch_ticker(symbol: str, interval: str) -> pd.DataFrame:
     period, freq = PERIOD_MAP.get(interval, ("3mo", "1d"))
-    # Use a custom session with browser headers to avoid rate limiting
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-    })
-    tk = yf.Ticker(symbol, session=session)
+    tk = yf.Ticker(symbol)
     df = tk.history(period=period, interval=freq, auto_adjust=True)
     if df.empty:
         raise ValueError(f"No data returned for {symbol}")
@@ -261,15 +249,7 @@ def fetch_ticker(symbol: str, interval: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=1800)
 def fetch_quote(symbol: str) -> dict:
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-    })
-    tk  = yf.Ticker(symbol, session=session)
+    tk  = yf.Ticker(symbol)
     fi  = tk.fast_info
     def _f(attr):
         try: return float(getattr(fi, attr) or 0)
